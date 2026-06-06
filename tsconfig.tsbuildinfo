@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/instructionoverlay.tsx","./src/components/modelselector.tsx","./src/components/scene.tsx","./src/components/statusbar.tsx","./src/components/models/wireframemodels.tsx"],"errors":true,"version":"6.0.3"}
