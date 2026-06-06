@@ -31,6 +31,6 @@ export default defineConfig({
     })
   ],
   server: {
-    allowedHosts: 'all' // Allow localtunnel and other hosts
+    allowedHosts: ['localhost', '.loca.lt', '.ngrok.io'] // Use array instead of 'all'
   }
 })
