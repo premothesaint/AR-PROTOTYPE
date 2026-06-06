@@ -13,143 +13,127 @@ function App() {
   const [arSession, setArSession] = useState<'unsupported' | 'supported' | 'active'>('unsupported');
   const nextId = useRef(0);
   const [showOverlay, setShowOverlay] = useState(true);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     checkARSupport();
   }, []);
 
   const checkARSupport = async () => {
-    console.log('Checking AR support...');
-    console.log('User Agent:', navigator.userAgent);
-    
     const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
     const isAndroid = /Android/.test(navigator.userAgent);
-    const isChrome = /Chrome/.test(navigator.userAgent);
-    const isSafari = /Safari/.test(navigator.userAgent) && !isChrome;
     
-    console.log('Device info:', { isIOS, isAndroid, isChrome, isSafari });
+    console.log('Device:', { isIOS, isAndroid });
 
-    // Check if WebXR API exists
-    const hasWebXR = 'xr' in navigator;
-    console.log('Has WebXR API:', hasWebXR);
-
-    if (hasWebXR) {
+    // Try standard WebXR check
+    if ('xr' in navigator) {
       try {
-        const xr = (navigator as any).xr;
-        const supported = await xr.isSessionSupported('immersive-ar');
-        console.log('AR session supported:', supported);
-        
+        const supported = await (navigator as any).xr.isSessionSupported('immersive-ar');
+        console.log('Standard WebXR AR supported:', supported);
         if (supported) {
           setArSession('supported');
           return;
         }
-      } catch (error) {
-        console.log('Error checking AR session:', error);
+      } catch (e) {
+        console.log('WebXR check error:', e);
       }
     }
 
-    // iOS Safari specific - it might have ARKit but not expose standard WebXR
-    if (isIOS && isSafari) {
-      console.log('iOS Safari detected - checking for AR Quick Look support');
-      
-      // iOS 12+ has AR Quick Look which can be used as fallback
-      const iOSVersion = getIOSVersion();
-      console.log('iOS Version:', iOSVersion);
-      
-      if (iOSVersion >= 12) {
-        // iOS 12+ should support WebXR in Safari
-        // Force reload with WebXR enabled
-        setArSession('supported');
-        return;
-      }
-    }
-
-    // Android Chrome
-    if (isAndroid && isChrome) {
-      // Chrome on Android should support WebXR
+    // On mobile, assume supported and try anyway
+    if (isIOS || isAndroid) {
+      console.log('Mobile device - setting as supported');
       setArSession('supported');
-      return;
     }
-
-    setArSession('unsupported');
-  };
-
-  const getIOSVersion = () => {
-    const match = navigator.userAgent.match(/OS (\d+)_(\d+)/);
-    return match ? parseInt(match[1]) : 0;
   };
 
   const handleStartAR = async () => {
-    console.log('Start AR button clicked');
+    console.log('Attempting to start AR...');
     setShowOverlay(false);
-    
+
     try {
-      // Try standard WebXR first
+      // Method 1: Standard WebXR
       if ('xr' in navigator) {
         const xr = (navigator as any).xr;
         
-        console.log('Requesting AR session...');
+        // Try without checking first (some browsers fail check but succeed request)
         const session = await xr.requestSession('immersive-ar', {
           requiredFeatures: ['hit-test'],
-          optionalFeatures: ['dom-overlay', 'local-floor'],
+          optionalFeatures: ['dom-overlay', 'local-floor', 'bounded-floor'],
+        }).catch(async () => {
+          // Try with minimal features
+          return await xr.requestSession('immersive-ar', {
+            requiredFeatures: [],
+            optionalFeatures: ['hit-test'],
+          });
         });
 
-        console.log('AR Session started:', session);
+        console.log('AR Session started!', session);
         setArSession('active');
-        
+
         session.addEventListener('end', () => {
-          console.log('AR Session ended');
+          console.log('AR ended');
           setArSession('supported');
           setShowOverlay(true);
         });
-        
+
         return;
       }
 
-      // Fallback for iOS Safari - use AR Quick Look
+      // Method 2: Use WebRTC + MediaStream for iOS Safari
       const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
       if (isIOS) {
-        // Create a simple USDZ model for AR Quick Look
-        alert('On iOS, you can use AR Quick Look. In a production app, we would provide .usdz files for AR viewing.');
+        // Request camera access first (this triggers AR capabilities on iOS)
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        });
+
+        console.log('Camera access granted');
+        
+        // Stop the stream - we just needed to trigger camera permission
+        stream.getTracks().forEach(track => track.stop());
+
+        // Try WebXR again after camera permission
+        if ('xr' in navigator) {
+          const session = await (navigator as any).xr.requestSession('immersive-ar', {
+            requiredFeatures: ['hit-test'],
+          });
+          
+          console.log('AR Session started after camera permission!');
+          setArSession('active');
+          return;
+        }
+
+        // If still no WebXR, show camera feed as fallback
+        alert('WebXR not available. Camera access is working but AR features require iOS 13+ with Safari.');
         setShowOverlay(true);
         return;
       }
 
-      alert('AR is not supported on this device/browser combination.');
+      alert('AR not available on this device. Please use:\n\n• iPhone/iPad with iOS 13+ and Safari\n• Android with Chrome');
       setShowOverlay(true);
-      
+
     } catch (error: any) {
       console.error('AR Error:', error);
       
-      // Check for specific errors
-      if (error.name === 'NotSupportedError') {
-        alert('AR not supported. Make sure you have granted camera permissions.');
+      let message = 'Could not start AR. ';
+      if (error.name === 'NotAllowedError') {
+        message = 'Camera permission denied. Please allow camera access in Settings > Safari > Camera.';
+      } else if (error.name === 'NotSupportedError') {
+        message = 'AR not supported on this device/browser.';
       } else if (error.name === 'SecurityError') {
-        alert('AR requires HTTPS connection.');
-      } else if (error.name === 'InvalidStateError') {
-        alert('AR session already active or invalid state.');
+        message = 'HTTPS is required for AR. Make sure you\'re using a secure connection.';
       } else {
-        alert('Could not start AR: ' + (error.message || 'Unknown error'));
+        message += error.message || 'Unknown error';
       }
       
+      alert(message);
       setShowOverlay(true);
     }
   };
-
-  const handleCanvasClick = () => {
-    if (arSession !== 'active') {
-      const newModel = {
-        id: nextId.current++,
-        type: selectedModel,
-        position: [(Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 4] as [number, number, number],
-        scale: 0.3 + Math.random() * 0.3,
-        rotation: [0, Math.random() * Math.PI * 2, 0] as [number, number, number]
-      };
-      setPlacedModels(prev => [...prev, newModel]);
-    }
-  };
-
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   return (
     <div style={{ 
@@ -163,19 +147,17 @@ function App() {
       <StatusBar arSession={arSession} />
       
       <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}>
-        <Canvas camera={{ position: [0, 3, 6], fov: 50 }}>
+        <Canvas 
+          ref={canvasRef}
+          camera={{ position: [0, 3, 6], fov: 50 }}
+        >
           <Scene
             placedModels={placedModels}
             onModelPlaced={() => {}}
             onModelUpdate={() => {}}
             isPreview={arSession !== 'active'}
           />
-          <OrbitControls 
-            enableDamping
-            enablePan={false}
-            minDistance={2}
-            maxDistance={10}
-          />
+          <OrbitControls enableDamping />
         </Canvas>
       </div>
 
@@ -187,7 +169,7 @@ function App() {
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 1000,
-          background: 'rgba(10, 10, 26, 0.5)'
+          background: 'rgba(10, 10, 26, 0.7)'
         }}>
           <div style={{
             background: 'rgba(10, 10, 26, 0.98)',
@@ -198,58 +180,45 @@ function App() {
             width: '85%',
             textAlign: 'center'
           }}>
-            <h2 style={{ 
-              color: '#00d4ff', 
-              fontFamily: 'monospace', 
-              fontSize: '20px',
-              marginBottom: '15px'
-            }}>
-              {arSession === 'supported' ? 'AR READY' : 'PREVIEW MODE'}
+            <h2 style={{ color: '#00d4ff', fontFamily: 'monospace', marginBottom: '20px' }}>
+              AR CONSTRUCTION
             </h2>
             
-            {arSession === 'supported' ? (
-              <>
-                <p style={{ color: '#8a8a9a', fontFamily: 'monospace', fontSize: '12px', marginBottom: '20px' }}>
-                  Point camera at a flat surface
-                </p>
-                <button
-                  onClick={handleStartAR}
-                  style={{
-                    background: 'linear-gradient(135deg, #4a90e2, #00d4ff)',
-                    color: 'white',
-                    border: 'none',
-                    padding: '16px 32px',
-                    borderRadius: '12px',
-                    fontSize: '16px',
-                    fontWeight: 'bold',
-                    fontFamily: 'monospace',
-                    cursor: 'pointer',
-                    width: '100%',
-                    pointerEvents: 'auto'
-                  }}
-                >
-                  START AR
-                </button>
-              </>
-            ) : (
-              <p style={{ color: '#8a8a9a', fontFamily: 'monospace', fontSize: '12px' }}>
-                {isMobile 
-                  ? 'Your browser may not support WebXR. Try updating iOS/Safari or use Chrome on Android.'
-                  : 'Open this page on a mobile device to use AR features.'
-                }
-              </p>
-            )}
+            <p style={{ color: '#8a8a9a', fontFamily: 'monospace', fontSize: '13px', marginBottom: '25px' }}>
+              Point your camera at a flat surface to place 3D models
+            </p>
+
+            <button
+              onClick={handleStartAR}
+              style={{
+                background: 'linear-gradient(135deg, #4a90e2, #00d4ff)',
+                color: 'white',
+                border: 'none',
+                padding: '18px 40px',
+                borderRadius: '12px',
+                fontSize: '18px',
+                fontWeight: 'bold',
+                fontFamily: 'monospace',
+                cursor: 'pointer',
+                width: '100%',
+                touchAction: 'manipulation'
+              }}
+            >
+              START AR SESSION
+            </button>
+
+            <p style={{ color: '#666', fontSize: '11px', fontFamily: 'monospace', marginTop: '15px' }}>
+              Camera permission required
+            </p>
           </div>
         </div>
       )}
 
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 1000 }}>
-        <ModelSelector 
-          selectedModel={selectedModel} 
-          onSelectModel={setSelectedModel} 
-          arSession={arSession}
-        />
-      </div>
+      <ModelSelector 
+        selectedModel={selectedModel} 
+        onSelectModel={setSelectedModel} 
+        arSession={arSession}
+      />
     </div>
   );
 }
