@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebXR Test</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+    <h1>WebXR Support Test</h1>
+    <div id="results"></div>
+    <button onclick="testXR()">Test WebXR</button>
+    
+    <script>
+        async function testXR() {
+            const results = document.getElementById('results');
+            results.innerHTML = '';
+            
+            // User Agent
+            results.innerHTML += `<p><b>User Agent:</b> ${navigator.userAgent}</p>`;
+            
+            // WebXR API
+            results.innerHTML += `<p><b>WebXR API:</b> ${'xr' in navigator ? '✅ Available' : '❌ Not Available'}</p>`;
+            
+            if ('xr' in navigator) {
+                try {
+                    const supported = await navigator.xr.isSessionSupported('immersive-ar');
+                    results.innerHTML += `<p><b>AR Support:</b> ${supported ? '✅ Yes' : '❌ No'}</p>`;
+                } catch (e) {
+                    results.innerHTML += `<p><b>AR Check Error:</b> ${e.message}</p>`;
+                }
+            }
+        }
+        
+        // Auto-test
+        testXR();
+    </script>
+</body>
+</html>
